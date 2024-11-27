@@ -1,96 +1,63 @@
-#[cfg(not(target_arch = "wasm32"))]
-use bevy::sprite::{Wireframe2dConfig, Wireframe2dPlugin};
-use bevy::{
-    prelude::*,
-    sprite::{MaterialMesh2dBundle, Mesh2dHandle},
-};
+//! Renders an animated sprite by loading all animation frames from a single image (a sprite sheet)
+//! into a texture atlas, and changing the displayed image periodically.
+
+use bevy::prelude::*;
 
 fn main() {
-    let mut app = App::new();
-    app.add_plugins((
-        DefaultPlugins,
-        #[cfg(not(target_arch = "wasm32"))]
-        Wireframe2dPlugin,
-    ))
-    .add_systems(Startup, setup);
-    #[cfg(not(target_arch = "wasm32"))]
-    app.add_systems(Update, toggle_wireframe);
-    app.run();
+    App::new()
+        .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest())) // prevents blurry sprites
+        .add_systems(Startup, setup)
+        .add_systems(Update, animate_sprite)
+        .run();
 }
 
-const X_EXTENT: f32 = 900.;
+#[derive(Component)]
+struct AnimationIndices {
+    first: usize,
+    last: usize,
+}
+
+#[derive(Component, Deref, DerefMut)]
+struct AnimationTimer(Timer);
+
+fn animate_sprite(
+    time: Res<Time>,
+    mut query: Query<(&AnimationIndices, &mut AnimationTimer, &mut TextureAtlas)>,
+) {
+    for (indices, mut timer, mut atlas) in &mut query {
+        timer.tick(time.delta());
+        if timer.just_finished() {
+            atlas.index = if atlas.index == indices.last {
+                indices.first
+            } else {
+                atlas.index + 1
+            };
+        }
+    }
+}
 
 fn setup(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
     asset_server: Res<AssetServer>,
+    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
-    // initialize gabe.
-
-    // spawn camera.
+    let texture = asset_server.load("chars/gabe-idle-run.png");
+    let layout = TextureAtlasLayout::from_grid(UVec2::splat(24), 7, 1, None, None);
+    let texture_atlas_layout = texture_atlas_layouts.add(layout);
+    // Use only the subset of sprites in the sheet that make up the run animation
+    let animation_indices = AnimationIndices { first: 1, last: 6 };
     commands.spawn(Camera2dBundle::default());
-
-    // spawn Mati.
-    commands.spawn(SpriteBundle {
-        texture: asset_server.load("branding/mati.png"),
-        ..default()
-    });
-
-    let shapes = [
-        Mesh2dHandle(meshes.add(Circle { radius: 50.0 })),
-        Mesh2dHandle(meshes.add(CircularSector::new(50.0, 1.0))),
-        Mesh2dHandle(meshes.add(CircularSegment::new(50.0, 1.25))),
-        Mesh2dHandle(meshes.add(Ellipse::new(25.0, 50.0))),
-        Mesh2dHandle(meshes.add(Annulus::new(25.0, 50.0))),
-        Mesh2dHandle(meshes.add(Capsule2d::new(25.0, 50.0))),
-        Mesh2dHandle(meshes.add(Rhombus::new(75.0, 100.0))),
-        Mesh2dHandle(meshes.add(Rectangle::new(50.0, 100.0))),
-        Mesh2dHandle(meshes.add(RegularPolygon::new(50.0, 6))),
-        Mesh2dHandle(meshes.add(Triangle2d::new(
-            Vec2::Y * 50.0,
-            Vec2::new(-50.0, -50.0),
-            Vec2::new(50.0, -50.0),
-        ))),
-    ];
-
-    let num_shapes = shapes.len();
-
-    for (i, shape) in shapes.into_iter().enumerate() {
-        // distribute colors evenly across the rainbow.
-        let color = Color::hsl(360. * i as f32 / num_shapes as f32, 0.95, 0.7);
-
-        commands.spawn(MaterialMesh2dBundle {
-            mesh: shape,
-            material: materials.add(color),
-            transform: Transform::from_xyz(
-                // Distribute shapes from -X_EXTENT/2 to +X_EXTENT/2.
-                -X_EXTENT / 2. + i as f32 / (num_shapes - 1) as f32 * X_EXTENT,
-                0.0,
-                0.0,
-            ),
+    commands.spawn((
+        SpriteBundle {
+            transform: Transform::from_scale(Vec3::splat(6.0)),
+            texture,
             ..default()
-        });
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    commands.spawn(
-        TextBundle::from_section("Press space to toggle wireframes", TextStyle::default())
-            .with_style(Style {
-                position_type: PositionType::Absolute,
-                top: Val::Px(12.0),
-                left: Val::Px(12.0),
-                ..default()
-            }),
-    );
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn toggle_wireframe(
-    mut wireframe_config: ResMut<Wireframe2dConfig>,
-    keyboard: Res<ButtonInput<KeyCode>>,
-) {
-    if keyboard.just_pressed(KeyCode::Space) {
-        wireframe_config.global = !wireframe_config.global;
-    }
+        },
+        TextureAtlas {
+            layout: texture_atlas_layout,
+            index: animation_indices.first,
+        },
+        animation_indices,
+        AnimationTimer(Timer::from_seconds(0.1, TimerMode::Repeating)),
+    ));
 }

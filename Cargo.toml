@@ -7,5 +7,7 @@ edition = "2021"
 
 [dependencies]
 bevy = "0.14.2"
+onnxruntime = "0.0.14"
+tch = "0.18.0"
 
 
